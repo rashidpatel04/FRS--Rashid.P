@@ -10,51 +10,82 @@ from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input
 from sklearn.neighbors import NearestNeighbors
 from numpy.linalg import norm
 
-# Load precomputed feature vectors and filenames
-feature_list = np.array(pickle.load(open('embeddings.pkl', 'rb')))
-filenames = pickle.load(open('filenames.pkl', 'rb'))
+# -----------------------------
+# Base directory (DEPLOYMENT SAFE)
+# -----------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 
-# Load the ResNet50 model pre-trained on ImageNet
-model = ResNet50(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
-model.trainable = False
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# Create a Sequential model that adds a GlobalMaxPooling2D layer to ResNet50
-model = tf.keras.Sequential([
-    model,
-    GlobalMaxPooling2D()
-])
+# -----------------------------
+# CACHED LOADING (IMPORTANT)
+# -----------------------------
+@st.cache_resource
+def load_embeddings():
+    with open(os.path.join(BASE_DIR, "embeddings.pkl"), "rb") as f:
+        return np.array(pickle.load(f))
 
-# Streamlit app title with custom styling
+@st.cache_resource
+def load_filenames():
+    with open(os.path.join(BASE_DIR, "filenames.pkl"), "rb") as f:
+        return pickle.load(f)
+
+@st.cache_resource
+def load_model():
+    base_model = ResNet50(
+        weights="imagenet",
+        include_top=False,
+        input_shape=(224, 224, 3)
+    )
+    base_model.trainable = False
+
+    model = tf.keras.Sequential([
+        base_model,
+        GlobalMaxPooling2D()
+    ])
+    return model
+
+feature_list = load_embeddings()
+filenames = load_filenames()
+model = load_model()
+
+# -----------------------------
+# UI
+# -----------------------------
 st.markdown("""
-    <style>
-    .title {
-        font-size: 40px;
-        font-weight: bold;
-        color: #ff6347; /* Tomato color */
-        text-align: center;
-        margin-bottom: 20px;
-    }
-    .subtitle {
-        font-size: 24px;
-        color: #4682b4; /* Steel blue color */
-        text-align: center;
-        margin-bottom: 40px;
-    }
-    </style>
-    <div class="title">Fashion Recommender System</div>
-    <div class="subtitle">By Rashid Patel</div>
+<style>
+.title {
+    font-size: 40px;
+    font-weight: bold;
+    color: #ff6347;
+    text-align: center;
+    margin-bottom: 20px;
+}
+.subtitle {
+    font-size: 24px;
+    color: #4682b4;
+    text-align: center;
+    margin-bottom: 40px;
+}
+</style>
+
+<div class="title">Fashion Recommender System</div>
+<div class="subtitle">By Rashid Patel</div>
 """, unsafe_allow_html=True)
 
-# Function to save uploaded files to the 'uploads' directory
+# -----------------------------
+# FUNCTIONS
+# -----------------------------
 def save_uploaded_file(uploaded_file):
     try:
-        with open(os.path.join('uploads', uploaded_file.name), 'wb') as f:
+        file_path = os.path.join(UPLOAD_DIR, uploaded_file.name)
+        with open(file_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
-        return 1
-    except:
-        return 0
+        return file_path
+    except Exception:
+        return None
 
-# Function to extract features from an image using the model
 def feature_extraction(img_path, model):
     img = image.load_img(img_path, target_size=(224, 224))
     img_array = image.img_to_array(img)
@@ -64,31 +95,32 @@ def feature_extraction(img_path, model):
     normalized_result = result / norm(result)
     return normalized_result
 
-# Function to find the nearest neighbors of the extracted features
 def recommend(features, feature_list):
-    neighbors = NearestNeighbors(n_neighbors=6, algorithm='brute', metric='euclidean')
+    neighbors = NearestNeighbors(
+        n_neighbors=6,
+        algorithm="brute",
+        metric="euclidean"
+    )
     neighbors.fit(feature_list)
     distances, indices = neighbors.kneighbors([features])
     return indices
 
-# File upload interface
+# -----------------------------
+# FILE UPLOAD
+# -----------------------------
 uploaded_file = st.file_uploader("Choose an image")
+
 if uploaded_file is not None:
-    if save_uploaded_file(uploaded_file):
-        # Display the uploaded image with a label
-        display_image = Image.open(uploaded_file)
+    saved_path = save_uploaded_file(uploaded_file)
+
+    if saved_path:
+        display_image = Image.open(saved_path)
         st.image(display_image, caption="You provided this item")
 
-        # Extract features from the uploaded image
-        features = feature_extraction(os.path.join("uploads", uploaded_file.name), model)
-
-        # Find the nearest neighbors based on the extracted features
+        features = feature_extraction(saved_path, model)
         indices = recommend(features, feature_list)
 
-        # Display the recommendations with snow animation
-        st.write("You might also like these:")
-
-        # Trigger snow animation
+        st.subheader("You might also like these:")
         st.snow()
 
         col1, col2, col3, col4, col5 = st.columns(5)
@@ -104,4 +136,5 @@ if uploaded_file is not None:
         with col5:
             st.image(filenames[indices[0][5]])
     else:
-        st.header("Some error occurred in file upload")
+        st.error("File upload failed. Please try again.")
+
