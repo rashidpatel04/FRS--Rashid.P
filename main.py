@@ -15,20 +15,27 @@ from numpy.linalg import norm
 # -----------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
-
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # -----------------------------
-# CACHED LOADING (IMPORTANT)
+# CACHED LOADING
 # -----------------------------
 @st.cache_resource
 def load_embeddings():
-    with open(os.path.join(BASE_DIR, "embeddings.pkl"), "rb") as f:
+    path = os.path.join(BASE_DIR, "embeddings.pkl")
+    if not os.path.exists(path):
+        st.error("embeddings.pkl not found in repository")
+        st.stop()
+    with open(path, "rb") as f:
         return np.array(pickle.load(f))
 
 @st.cache_resource
 def load_filenames():
-    with open(os.path.join(BASE_DIR, "filenames.pkl"), "rb") as f:
+    path = os.path.join(BASE_DIR, "filenames.pkl")
+    if not os.path.exists(path):
+        st.error("filenames.pkl not found in repository")
+        st.stop()
+    with open(path, "rb") as f:
         return pickle.load(f)
 
 @st.cache_resource
@@ -39,12 +46,10 @@ def load_model():
         input_shape=(224, 224, 3)
     )
     base_model.trainable = False
-
-    model = tf.keras.Sequential([
+    return tf.keras.Sequential([
         base_model,
         GlobalMaxPooling2D()
     ])
-    return model
 
 feature_list = load_embeddings()
 filenames = load_filenames()
@@ -91,31 +96,31 @@ def feature_extraction(img_path, model):
     img_array = image.img_to_array(img)
     expanded_img_array = np.expand_dims(img_array, axis=0)
     preprocessed_img = preprocess_input(expanded_img_array)
-    result = model.predict(preprocessed_img).flatten()
-    normalized_result = result / norm(result)
-    return normalized_result
+    result = model.predict(preprocessed_img, verbose=0).flatten()
+    return result / norm(result)
 
 def recommend(features, feature_list):
-    neighbors = NearestNeighbors(
-        n_neighbors=6,
-        algorithm="brute",
-        metric="euclidean"
-    )
+    neighbors = NearestNeighbors(n_neighbors=6, algorithm="brute", metric="euclidean")
     neighbors.fit(feature_list)
-    distances, indices = neighbors.kneighbors([features])
+    _, indices = neighbors.kneighbors([features])
     return indices
+
+def show_image_safe(path):
+    if isinstance(path, str) and os.path.exists(path):
+        st.image(path)
+    else:
+        st.info("Image not available")
 
 # -----------------------------
 # FILE UPLOAD
 # -----------------------------
-uploaded_file = st.file_uploader("Choose an image")
+uploaded_file = st.file_uploader("Choose an image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     saved_path = save_uploaded_file(uploaded_file)
 
     if saved_path:
-        display_image = Image.open(saved_path)
-        st.image(display_image, caption="You provided this item")
+        st.image(Image.open(saved_path), caption="You provided this item")
 
         features = feature_extraction(saved_path, model)
         indices = recommend(features, feature_list)
@@ -126,15 +131,14 @@ if uploaded_file is not None:
         col1, col2, col3, col4, col5 = st.columns(5)
 
         with col1:
-            st.image(filenames[indices[0][1]])
+            show_image_safe(filenames[indices[0][1]])
         with col2:
-            st.image(filenames[indices[0][2]])
+            show_image_safe(filenames[indices[0][2]])
         with col3:
-            st.image(filenames[indices[0][3]])
+            show_image_safe(filenames[indices[0][3]])
         with col4:
-            st.image(filenames[indices[0][4]])
+            show_image_safe(filenames[indices[0][4]])
         with col5:
-            st.image(filenames[indices[0][5]])
+            show_image_safe(filenames[indices[0][5]])
     else:
         st.error("File upload failed. Please try again.")
-
