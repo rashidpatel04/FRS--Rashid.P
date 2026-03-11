@@ -11,14 +11,16 @@ from sklearn.neighbors import NearestNeighbors
 from numpy.linalg import norm
 
 # -----------------------------
-# Base directory (DEPLOYMENT SAFE)
+# Base directories
 # -----------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+IMAGE_DIR = os.path.join(BASE_DIR, "images")
+
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # -----------------------------
-# CACHED LOADING
+# Cached loaders
 # -----------------------------
 @st.cache_resource
 def load_embeddings():
@@ -46,10 +48,11 @@ def load_model():
         input_shape=(224, 224, 3)
     )
     base_model.trainable = False
-    return tf.keras.Sequential([
+    model = tf.keras.Sequential([
         base_model,
         GlobalMaxPooling2D()
     ])
+    return model
 
 feature_list = load_embeddings()
 filenames = load_filenames()
@@ -80,7 +83,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------
-# FUNCTIONS
+# Helper functions
 # -----------------------------
 def save_uploaded_file(uploaded_file):
     try:
@@ -94,29 +97,42 @@ def save_uploaded_file(uploaded_file):
 def feature_extraction(img_path, model):
     img = image.load_img(img_path, target_size=(224, 224))
     img_array = image.img_to_array(img)
+
     expanded_img_array = np.expand_dims(img_array, axis=0)
     preprocessed_img = preprocess_input(expanded_img_array)
+
     result = model.predict(preprocessed_img, verbose=0).flatten()
     return result / norm(result)
 
 def recommend(features, feature_list):
-    neighbors = NearestNeighbors(n_neighbors=6, algorithm="brute", metric="euclidean")
+    neighbors = NearestNeighbors(
+        n_neighbors=6,
+        algorithm="brute",
+        metric="euclidean"
+    )
     neighbors.fit(feature_list)
     _, indices = neighbors.kneighbors([features])
     return indices
 
-def show_image_safe(path):
-    if isinstance(path, str) and os.path.exists(path):
-        st.image(path)
+# 🔧 Convert filenames.pkl entry → images folder path
+def resolve_image_path(original_path):
+    image_name = os.path.basename(original_path)
+    return os.path.join(IMAGE_DIR, image_name)
+
+def show_image_safe(original_path):
+    img_path = resolve_image_path(original_path)
+    if os.path.exists(img_path):
+        st.image(img_path)
     else:
         st.info("Image not available")
 
 # -----------------------------
-# FILE UPLOAD
+# File uploader
 # -----------------------------
 uploaded_file = st.file_uploader("Choose an image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
+
     saved_path = save_uploaded_file(uploaded_file)
 
     if saved_path:
@@ -140,5 +156,6 @@ if uploaded_file is not None:
             show_image_safe(filenames[indices[0][4]])
         with col5:
             show_image_safe(filenames[indices[0][5]])
+
     else:
         st.error("File upload failed. Please try again.")
