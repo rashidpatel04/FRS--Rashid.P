@@ -57,6 +57,7 @@ def load_model():
 feature_list = load_embeddings()
 filenames = load_filenames()
 model = load_model()
+st.write("First filename from PKL:", filenames[0])
 
 # -----------------------------
 # UI
@@ -169,4 +170,5 @@ if uploaded_file is not None:
 
     else:
         st.error("File upload failed. Please try again.")
+
 
