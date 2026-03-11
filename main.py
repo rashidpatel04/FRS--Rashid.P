@@ -119,10 +119,20 @@ def resolve_image_path(original_path):
     image_name = os.path.basename(original_path)
     return os.path.join(IMAGE_DIR, image_name)
 
-def show_image_safe(original_path):
-    img_path = resolve_image_path(original_path)
-    if os.path.exists(img_path):
-        st.image(img_path)
+def show_image_safe(path):
+
+    if not isinstance(path, str):
+        st.info("Image not available")
+        return
+
+    # extract only file name
+    image_name = os.path.basename(path)
+
+    # rebuild correct repo path
+    image_path = os.path.join(BASE_DIR, "images", image_name)
+
+    if os.path.exists(image_path):
+        st.image(image_path)
     else:
         st.info("Image not available")
 
@@ -159,3 +169,4 @@ if uploaded_file is not None:
 
     else:
         st.error("File upload failed. Please try again.")
+
