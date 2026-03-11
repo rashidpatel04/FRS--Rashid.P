@@ -24,40 +24,25 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # -----------------------------
 @st.cache_resource
 def load_embeddings():
-    path = os.path.join(BASE_DIR, "embeddings.pkl")
-    if not os.path.exists(path):
-        st.error("embeddings.pkl not found in repository")
-        st.stop()
-    with open(path, "rb") as f:
+    with open(os.path.join(BASE_DIR, "embeddings.pkl"), "rb") as f:
         return np.array(pickle.load(f))
 
 @st.cache_resource
 def load_filenames():
-    path = os.path.join(BASE_DIR, "filenames.pkl")
-    if not os.path.exists(path):
-        st.error("filenames.pkl not found in repository")
-        st.stop()
-    with open(path, "rb") as f:
+    with open(os.path.join(BASE_DIR, "filenames.pkl"), "rb") as f:
         return pickle.load(f)
 
 @st.cache_resource
 def load_model():
-    base_model = ResNet50(
-        weights="imagenet",
-        include_top=False,
-        input_shape=(224, 224, 3)
-    )
+    base_model = ResNet50(weights="imagenet", include_top=False, input_shape=(224,224,3))
     base_model.trainable = False
-    model = tf.keras.Sequential([
-        base_model,
-        GlobalMaxPooling2D()
-    ])
+    model = tf.keras.Sequential([base_model, GlobalMaxPooling2D()])
     return model
+
 
 feature_list = load_embeddings()
 filenames = load_filenames()
 model = load_model()
-st.write("First filename from PKL:", filenames[0])
 
 # -----------------------------
 # UI
@@ -65,17 +50,13 @@ st.write("First filename from PKL:", filenames[0])
 st.markdown("""
 <style>
 .title {
-    font-size: 40px;
-    font-weight: bold;
-    color: #ff6347;
-    text-align: center;
-    margin-bottom: 20px;
+    font-size:40px;
+    font-weight:bold;
+    text-align:center;
 }
-.subtitle {
-    font-size: 24px;
-    color: #4682b4;
-    text-align: center;
-    margin-bottom: 40px;
+.subtitle{
+    text-align:center;
+    font-size:20px;
 }
 </style>
 
@@ -83,92 +64,103 @@ st.markdown("""
 <div class="subtitle">By Rashid Patel</div>
 """, unsafe_allow_html=True)
 
+
 # -----------------------------
-# Helper functions
+# Functions
 # -----------------------------
+
 def save_uploaded_file(uploaded_file):
     try:
         file_path = os.path.join(UPLOAD_DIR, uploaded_file.name)
-        with open(file_path, "wb") as f:
+        with open(file_path,'wb') as f:
             f.write(uploaded_file.getbuffer())
         return file_path
-    except Exception:
+    except:
         return None
 
-def feature_extraction(img_path, model):
-    img = image.load_img(img_path, target_size=(224, 224))
-    img_array = image.img_to_array(img)
 
-    expanded_img_array = np.expand_dims(img_array, axis=0)
-    preprocessed_img = preprocess_input(expanded_img_array)
+def feature_extraction(img_path,model):
 
-    result = model.predict(preprocessed_img, verbose=0).flatten()
-    return result / norm(result)
+    img = Image.open(img_path).convert("RGB")
+    img = img.resize((224,224))
 
-def recommend(features, feature_list):
-    neighbors = NearestNeighbors(
-        n_neighbors=6,
-        algorithm="brute",
-        metric="euclidean"
-    )
+    img_array = np.array(img)
+    expanded = np.expand_dims(img_array,axis=0)
+
+    preprocessed = preprocess_input(expanded)
+
+    result = model.predict(preprocessed,verbose=0).flatten()
+    normalized = result / norm(result)
+
+    return normalized
+
+
+def recommend(features,feature_list):
+
+    neighbors = NearestNeighbors(n_neighbors=6,algorithm="brute",metric="euclidean")
     neighbors.fit(feature_list)
-    _, indices = neighbors.kneighbors([features])
+
+    distances,indices = neighbors.kneighbors([features])
+
     return indices
 
-# 🔧 Convert filenames.pkl entry → images folder path
-def resolve_image_path(original_path):
-    image_name = os.path.basename(original_path)
-    return os.path.join(IMAGE_DIR, image_name)
 
-def show_image_safe(path):
+# convert pkl path -> correct dataset path
+def get_image_path(pkl_path):
 
-    if not isinstance(path, str):
-        st.info("Image not available")
-        return
+    filename = os.path.basename(pkl_path)
 
-    # extract only file name
-    image_name = os.path.basename(path)
+    return os.path.join(IMAGE_DIR,filename)
 
-    # rebuild correct repo path
-    image_path = os.path.join(BASE_DIR, "images", image_name)
 
-    if os.path.exists(image_path):
-        st.image(image_path)
+# safe display
+def show_image(path):
+
+    img_path = get_image_path(path)
+
+    if os.path.exists(img_path):
+        st.image(img_path,width=150)
     else:
-        st.info("Image not available")
+        st.write("missing:",img_path)
+
+
 
 # -----------------------------
-# File uploader
+# Upload UI
 # -----------------------------
-uploaded_file = st.file_uploader("Choose an image", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Choose an image",type=["jpg","jpeg","png"])
+
 
 if uploaded_file is not None:
 
     saved_path = save_uploaded_file(uploaded_file)
 
     if saved_path:
-        st.image(Image.open(saved_path), caption="You provided this item")
 
-        features = feature_extraction(saved_path, model)
-        indices = recommend(features, feature_list)
+        st.image(Image.open(saved_path),caption="You provided this item")
 
-        st.subheader("You might also like these:")
-        st.snow()
+        features = feature_extraction(saved_path,model)
 
-        col1, col2, col3, col4, col5 = st.columns(5)
+        indices = recommend(features,feature_list)
+
+        st.subheader("You might also like these")
+
+        col1,col2,col3,col4,col5 = st.columns(5)
 
         with col1:
-            show_image_safe(filenames[indices[0][1]])
+            show_image(filenames[indices[0][1]])
+
         with col2:
-            show_image_safe(filenames[indices[0][2]])
+            show_image(filenames[indices[0][2]])
+
         with col3:
-            show_image_safe(filenames[indices[0][3]])
+            show_image(filenames[indices[0][3]])
+
         with col4:
-            show_image_safe(filenames[indices[0][4]])
+            show_image(filenames[indices[0][4]])
+
         with col5:
-            show_image_safe(filenames[indices[0][5]])
+            show_image(filenames[indices[0][5]])
 
     else:
-        st.error("File upload failed. Please try again.")
-
-
+        st.error("File upload failed")
