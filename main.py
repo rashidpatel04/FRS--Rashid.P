@@ -4,44 +4,48 @@ from PIL import Image
 import numpy as np
 import pickle
 import tensorflow as tf
-from tensorflow.keras.preprocessing import image
-from tensorflow.keras.layers import GlobalMaxPooling2D
 from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input
+from tensorflow.keras.layers import GlobalMaxPooling2D
 from sklearn.neighbors import NearestNeighbors
 from numpy.linalg import norm
 
 
-# -----------------------------
-# Paths
-# -----------------------------
+# -------------------------
+# PAGE CONFIG
+# -------------------------
+
+st.set_page_config(
+    page_title="Fashion Recommender | Rashid Patel",
+    page_icon="👕",
+    layout="wide"
+)
+
+# -------------------------
+# PATHS
+# -------------------------
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 IMAGE_DIR = os.path.join(BASE_DIR, "images")
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# -------------------------
+# LOAD DATA
+# -------------------------
 
-# -----------------------------
-# Load embeddings
-# -----------------------------
 @st.cache_resource
 def load_embeddings():
     with open(os.path.join(BASE_DIR, "embeddings.pkl"), "rb") as f:
         return np.array(pickle.load(f))
 
 
-# -----------------------------
-# Load filenames
-# -----------------------------
 @st.cache_resource
 def load_filenames():
     with open(os.path.join(BASE_DIR, "filenames.pkl"), "rb") as f:
         return pickle.load(f)
 
 
-# -----------------------------
-# Load model
-# -----------------------------
 @st.cache_resource
 def load_model():
 
@@ -66,76 +70,64 @@ filenames = load_filenames()
 model = load_model()
 
 
-# -----------------------------
-# UI
-# -----------------------------
+# -------------------------
+# UI HEADER
+# -------------------------
+
 st.markdown("""
 <style>
 
-.title{
-font-size:42px;
+.main-title{
+font-size:45px;
 font-weight:bold;
 text-align:center;
-color:#ff6347;
+color:#ff4b4b;
 }
 
-.subtitle{
-text-align:center;
+.sub-title{
 font-size:22px;
+text-align:center;
+color:gray;
 margin-bottom:30px;
-color:#4682b4;
+}
+
+.card{
+background:#fafafa;
+padding:20px;
+border-radius:12px;
 }
 
 </style>
 
-<div class="title">Fashion Recommender System</div>
-<div class="subtitle">By Rashid Patel</div>
+<div class="main-title">Fashion Recommender System</div>
+<div class="sub-title">AI Powered Fashion Discovery • Built by Rashid Patel</div>
 
 """, unsafe_allow_html=True)
 
+# -------------------------
+# FEATURE EXTRACTION
+# -------------------------
 
-# -----------------------------
-# Save uploaded file
-# -----------------------------
-def save_uploaded_file(uploaded_file):
-
-    try:
-
-        file_path = os.path.join(UPLOAD_DIR, uploaded_file.name)
-
-        with open(file_path,"wb") as f:
-            f.write(uploaded_file.getbuffer())
-
-        return file_path
-
-    except:
-        return None
-
-
-# -----------------------------
-# Feature extraction
-# -----------------------------
-def feature_extraction(img_path,model):
+def feature_extraction(img_path):
 
     img = Image.open(img_path).convert("RGB")
     img = img.resize((224,224))
 
     img_array = np.array(img)
-    expanded_img_array = np.expand_dims(img_array,axis=0)
 
-    preprocessed_img = preprocess_input(expanded_img_array)
+    expanded_img = np.expand_dims(img_array, axis=0)
+    preprocessed_img = preprocess_input(expanded_img)
 
-    result = model.predict(preprocessed_img,verbose=0).flatten()
+    result = model.predict(preprocessed_img).flatten()
 
-    normalized_result = result / norm(result)
-
-    return normalized_result
+    return result / norm(result)
 
 
-# -----------------------------
-# Recommendation
-# -----------------------------
-def recommend(features,feature_list):
+# -------------------------
+# RECOMMEND
+# -------------------------
+
+def recommend(features):
 
     neighbors = NearestNeighbors(
         n_neighbors=6,
@@ -145,67 +137,68 @@ def recommend(features,feature_list):
 
     neighbors.fit(feature_list)
 
-    distances,indices = neighbors.kneighbors([features])
+    distances, indices = neighbors.kneighbors([features])
 
-    return indices
-
-
-# -----------------------------
-# Display image
-# -----------------------------
-def show_image(filename):
-
-    image_path = os.path.join(IMAGE_DIR, filename)
-
-    if os.path.exists(image_path):
-
-        st.image(image_path,width=150)
-
-    else:
-
-        st.warning(f"Missing image: {filename}")
+    return distances, indices
 
 
-# -----------------------------
-# File uploader
-# -----------------------------
+# -------------------------
+# FILE UPLOAD
+# -------------------------
+
 uploaded_file = st.file_uploader(
-    "Choose an image",
+    "Upload a fashion image",
     type=["jpg","jpeg","png"]
 )
 
 
 if uploaded_file is not None:
 
-    saved_path = save_uploaded_file(uploaded_file)
+    file_path = os.path.join(UPLOAD_DIR, uploaded_file.name)
 
-    if saved_path:
+    with open(file_path,"wb") as f:
+        f.write(uploaded_file.getbuffer())
 
-        st.image(Image.open(saved_path),caption="You provided this item")
+    st.subheader("Uploaded Item")
 
-        features = feature_extraction(saved_path,model)
+    st.image(file_path, width=300)
 
-        indices = recommend(features,feature_list)
+    with st.spinner("Analyzing fashion style..."):
 
-        st.subheader("You might also like these:")
+        features = feature_extraction(file_path)
 
-        col1,col2,col3,col4,col5 = st.columns(5)
+        distances, indices = recommend(features)
 
-        with col1:
-            show_image(filenames[indices[0][1]])
+    st.subheader("Recommended Products")
 
-        with col2:
-            show_image(filenames[indices[0][2]])
+    cols = st.columns(5)
 
-        with col3:
-            show_image(filenames[indices[0][3]])
+    for i in range(1,6):
 
-        with col4:
-            show_image(filenames[indices[0][4]])
+        image_name = filenames[indices[0][i]]
+        image_path = os.path.join(IMAGE_DIR, image_name)
 
-        with col5:
-            show_image(filenames[indices[0][5]])
+        similarity = 1 - distances[0][i]
 
-    else:
+        with cols[i-1]:
 
-        st.error("File upload failed.")
+            st.image(image_path, use_column_width=True)
+
+            st.caption(f"Similarity: {similarity:.2f}")
+
+            if st.button(f"View {i}"):
+
+                st.session_state["selected"] = image_path
+
+
+# -------------------------
+# SELECTED IMAGE PREVIEW
+# -------------------------
+
+if "selected" in st.session_state:
+
+    st.divider()
+
+    st.subheader("Product Preview")
+
+    st.image(st.session_state["selected"], width=400)
